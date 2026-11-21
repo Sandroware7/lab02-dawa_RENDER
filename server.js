@@ -9,51 +9,54 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Limpiar parámetros query string (todo lo que está después del '?')
-    const parsedUrl = req.url.split('?')[0];
+    // Limpiar query strings y normalizar la URL
+    let parsedUrl = req.url.split('?')[0];
+    if (parsedUrl === '/') parsedUrl = '/index.html';
 
-    // Redirigir la raíz '/' a '/index.html' automáticamente
-    const requestUrl = parsedUrl === '/' ? '/index.html' : parsedUrl;
+    // Extraer solo el nombre limpio del archivo (ej. si pide "/public/servicios.html" o "/servicios")
+    const cleanPath = parsedUrl.replace(/^\/public\//, '/');
+    const pathWithHtml = path.extname(cleanPath) === '' ? `${cleanPath}.html` : cleanPath;
 
-    // Obtener la ruta absoluta del archivo solicitado dentro de 'public'
-    const filePath = path.join(__dirname, 'public', requestUrl);
+    // Lista de posibles ubicaciones donde buscar el archivo
+    const candidatePaths = [
+        path.join(__dirname, 'public', cleanPath),
+        path.join(__dirname, cleanPath),
+        path.join(__dirname, 'public', pathWithHtml),
+        path.join(__dirname, pathWithHtml)
+    ];
 
-    console.log('Ruta del archivo solicitado:', filePath);
+    // Encontrar la primera ruta que exista y sea un archivo real
+    const filePath = candidatePaths.find(p => fs.existsSync(p) && !fs.statSync(p).isDirectory());
 
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-        console.error('Se intentó leer un directorio:', filePath);
-        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<h1>Error 500: Se intentó acceder a un directorio.</h1>');
+    if (!filePath) {
+        console.error('404 No encontrado:', req.url);
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<h1>404 - Página no encontrada</h1><p><a href="/index.html">Volver al Inicio</a></p>');
         return;
     }
 
     fs.readFile(filePath, (err, content) => {
         if (err) {
-            console.error('Error al leer el archivo:', err);
-            if (err.code === 'ENOENT') {
-                console.error('Archivo no encontrado:', filePath);
-                res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end('<h1>404 - Página no encontrada</h1><p><a href="/index.html">Volver al Inicio</a></p>');
-            } else {
-                res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end('<h1>Error 500 del servidor</h1>');
-            }
-        } else {
-            const ext = path.extname(filePath);
-            let contentType = 'text/html';
-            switch (ext) {
-                case '.js': contentType = 'text/javascript'; break;
-                case '.css': contentType = 'text/css'; break;
-                case '.json': contentType = 'application/json'; break;
-                case '.png': contentType = 'image/png'; break;
-                case '.jpg':
-                case '.jpeg': contentType = 'image/jpeg'; break;
-            }
-
-            console.log('Sirviendo archivo:', filePath);
-            res.writeHead(200, { 'Content-Type': `${contentType}; charset=utf-8` });
-            res.end(content);
+            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end('<h1>Error 500 del servidor</h1>');
+            return;
         }
+
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes = {
+            '.html': 'text/html',
+            '.js': 'text/javascript',
+            '.css': 'text/css',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.svg': 'image/svg+xml'
+        };
+
+        const contentType = mimeTypes[ext] || 'text/plain';
+        res.writeHead(200, { 'Content-Type': `${contentType}; charset=utf-8` });
+        res.end(content);
     });
 });
 
